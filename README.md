@@ -9,7 +9,7 @@ Allows random access via http range requests so that not the whole file has to b
 import urlfile
 import zipfile
 
-with zip.ZipFile(urlfile.BufferedUrlFile(url=...)) as f:
+with zip.ZipFile(urlfile.UrlFile(url=...)) as f:
   print(f.namelist())
 
 ```
