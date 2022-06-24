@@ -60,9 +60,9 @@ class UrlFile:
     return self._pos
 
   def read(self, size: int = -1) -> bytes:
-    data = self._fetch(start=self._pos,
-                       end=(self._pos + size - 1) if size > 0 else self.length -
-                       1).content
+    size = size if size > 0 else self.length - self._pos
+    data = self._fetch(start=self._pos, end=self._pos + size - 1).content
+    self._pos += size
     return data
 
   # Convenience do-nothing methods.
