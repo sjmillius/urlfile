@@ -9,6 +9,6 @@ Allows random access via http range requests so that not the whole file has to b
 import urlfile
 import zipfile
 
-with zip.ZipFile(urlfile.UrlFile(url=...)) as f:
+with zipfile.ZipFile(urlfile.UrlFile(url=...)) as f:
   f.printdir()
 ```
