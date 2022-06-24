@@ -10,6 +10,5 @@ import urlfile
 import zipfile
 
 with zip.ZipFile(urlfile.UrlFile(url=...)) as f:
-  print(f.namelist())
-
+  f.printdir()
 ```
