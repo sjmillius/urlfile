@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "urlfile"
+license = { text = "Apache License 2.0" }
+description = "Lazily reading a file from a url. Allows random access via http range requests."
+readme = "README.md"
+keywords = ["url", "range", "lazy", "file"]
+dynamic = ["version", "dependencies"]
+
+[project.urls]
+"Homepage" = "https://github.com/sjmillius/urlfile"
+"Bug Tracker" = "https://github.com/sjmillius/urlfile/issues"
