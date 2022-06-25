@@ -1,7 +1,7 @@
 import cachetools
 import os
 import requests
-import tqdm
+import rich.progress
 from typing import Dict
 
 __all__ = ['BufferedUrlFile', 'UrlFile', 'HTTPRangeRequestUnsupported']
@@ -115,15 +115,21 @@ class UrlFile:
       return data_it
 
     # Wrap in verbose feedback indicator.
-    progress = tqdm.tqdm(total=end - start,
-                         unit='B',
-                         unit_scale=True,
-                         unit_divisor=1024,
-                         leave=False,
-                         desc='Fetch data')
-    for chunk in data_it:
-      progress.update(len(chunk))
-      yield chunk
+    with rich.progress.Progress(rich.progress.TextColumn('[bold blue]Fetching',
+                                                         justify='right'),
+                                rich.progress.BarColumn(bar_width=None),
+                                "[progress.percentage]{task.percentage:>3.1f}%",
+                                "•",
+                                rich.progress.DownloadColumn(),
+                                "•",
+                                rich.progress.TransferSpeedColumn(),
+                                "•",
+                                rich.progress.TimeRemainingColumn(),
+                                transient=True) as progress:
+      task = progress.add_task("fetch", total=end - start)
+      for chunk in data_it:
+        progress.update(task, advance=len(chunk))
+        yield chunk
 
   def _data(self, start: int, size: int) -> bytes:
     '''Gets data for a specific range.'''

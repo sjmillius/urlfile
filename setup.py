@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name='urlfile',
-    version='1.0.0',
+    version='1.0.1',
     description='urlfile',
     long_description=open('README.md', 'r', encoding='utf8').read(),
     long_description_content_type="text/markdown",
@@ -13,5 +13,5 @@ setuptools.setup(
     install_requires=[
         'cachetools',
         'requests',
-        'tqdm'
+        'rich'
     ])
