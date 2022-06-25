@@ -12,15 +12,13 @@ class HTTPRangeRequestUnsupported(Exception):
 class UrlFile:
   '''A random access file backed by http range requests.'''
 
-  def __init__(self, url: str):
-    self._pos = 0
-
-    # Defined properties.
+  def __init__(self, url: str, session: requests.Session = None):
+    self._pos: int = 0
     self.url: str = url
-    self.closed: bool = False
+    self.session: requests.Session = session or requests.Session()
 
     # Make a head request to get length and see whether range requests are even supported.
-    head = requests.head(url=url)
+    head = self.session.head(url=url)
     head.raise_for_status()
     self.length: int = int(head.headers['Content-Length'])
 
@@ -47,6 +45,10 @@ class UrlFile:
 
   def close(self):
     pass
+
+  @property
+  def closed(self) -> bool:
+    return False
 
   def seek(self, offset: int, whence: int = os.SEEK_SET):
     if whence == os.SEEK_SET:
@@ -79,7 +81,7 @@ class UrlFile:
 
   def _fetch_data_range(self, start: int, end: int) -> bytes:
     '''Fetches a data range from the remote.'''
-    response = requests.get(
+    response = self.session.get(
         url=self.url,
         headers={'Range': f'bytes={start}-{min(self.length-1, end)}'})
     response.raise_for_status()
@@ -91,9 +93,10 @@ class BufferedUrlFile(UrlFile):
 
   def __init__(self,
                url: str,
+               session: requests.Session = None,
                chunk_size_bytes: int = 1024 * 1024,
                cache_size_bytes: int = 10 * 1024 * 1024):
-    super().__init__(url=url)
+    super().__init__(url=url, session=session)
     self._chunk_size: int = chunk_size_bytes
     self._cache: cachetools.LRUCache = cachetools.LRUCache(
         maxsize=cache_size_bytes, getsizeof=lambda _: chunk_size_bytes)
