@@ -23,5 +23,5 @@ f = urlfile.BufferedUrlFile(url=..., cache_size_bytes=...)
 By default, uses a cache size of `10MB`.
 ## Other options
 These are arguments of `UrlFile`/`BufferedUrlFile`
-* ```verbose```: whether to show progress bars during fetching of data (using `tqdm`, default: `False`)
+* ```verbose```: whether to show progress bars during fetching of data (using `rich.progress`, default: `False`)
 * ```session```: a `requests.Session` to use (default: `None`, creates a new session) 
