@@ -3,6 +3,7 @@ __all__ = ['BufferedUrlFile', 'UrlFile', 'HTTPRangeRequestUnsupported']
 import cachetools
 import os
 import requests
+from typing import Dict
 
 
 class HTTPRangeRequestUnsupported(Exception):
@@ -14,6 +15,8 @@ class UrlFile:
 
   def __init__(self, url: str, session: requests.Session = None):
     self._pos: int = 0
+    self._total_bytes_fetched = 0
+    self._num_requests = 0
     self.url: str = url
     self.session: requests.Session = session or requests.Session()
 
@@ -24,6 +27,14 @@ class UrlFile:
 
     if 'bytes' not in head.headers.get('Accept-Ranges', 'none'):
       raise HTTPRangeRequestUnsupported('http range requests not supported.')
+
+  @property
+  def total_bytes_fetched(self) -> int:
+    return self._total_bytes_fetched
+
+  @property
+  def num_requests(self) -> int:
+    return self._num_requests
 
   @property
   def mode(self) -> str:
@@ -75,17 +86,23 @@ class UrlFile:
   def __exit__(self):
     pass
 
-  def _data(self, start: int, size: int) -> bytes:
-    '''Gets data for a specific range.'''
-    return self._fetch_data_range(start=start, end=start + size - 1)
+  def _range_request(self, start: int, end: int) -> Dict[str, str]:
+    end = min(self.length - 1, end)
+    self._num_requests += 1
+    self._total_bytes_fetched += (end - start + 1)
+    return {'Range': f'bytes={start}-{end}'}
 
   def _fetch_data_range(self, start: int, end: int) -> bytes:
     '''Fetches a data range from the remote.'''
-    response = self.session.get(
-        url=self.url,
-        headers={'Range': f'bytes={start}-{min(self.length-1, end)}'})
+    response = self.session.get(url=self.url,
+                                headers=self._range_request(start=start,
+                                                            end=end))
     response.raise_for_status()
     return response.content
+
+  def _data(self, start: int, size: int) -> bytes:
+    '''Gets data for a specific range.'''
+    return self._fetch_data_range(start=start, end=start + size - 1)
 
 
 class BufferedUrlFile(UrlFile):
@@ -101,14 +118,49 @@ class BufferedUrlFile(UrlFile):
     self._cache: cachetools.LRUCache = cachetools.LRUCache(
         maxsize=cache_size_bytes, getsizeof=lambda _: chunk_size_bytes)
 
-  @cachetools.cachedmethod(lambda self: self._cache)
-  def _fetch_chunk(self, start: int) -> bytes:
-    return self._fetch_data_range(start=start, end=start + self._chunk_size - 1)
+  def _fetch_aligned(self, start: int, size: int) -> bytes:
+    response = self.session.get(url=self.url,
+                                headers=self._range_request(start=start,
+                                                            end=start + size -
+                                                            1),
+                                stream=True)
+    response.raise_for_status()
+    buffer = b''
+    for i, chunk in enumerate(
+        response.iter_content(chunk_size=self._chunk_size)):
+      self._cache[start + i * self._chunk_size] = chunk
+      buffer += chunk
+    return buffer
+
+  def _align(self, start: int) -> int:
+    return start - (start % self._chunk_size)
 
   def _data(self, start: int, size: int) -> bytes:
     '''Gets data for a specific range.'''
+    # Align start to chunk boundary.
+    chunk_start = self._align(start=start)
+    end = start + size
+    offset = start - chunk_start
+
     buffer = b''
-    offset = start % self._chunk_size
-    for chunk_start in range(start - offset, start + size, self._chunk_size):
-      buffer += self._fetch_chunk(start=chunk_start)
+
+    next_start = chunk_start
+    while next_start < end:
+      # Fill up with everything that is in the cache.
+      if next_start in self._cache:
+        buffer += self._cache[next_start]
+        next_start += self._chunk_size
+        continue
+
+      # Find next start of a chunk that's already in the cache.
+      range_end = next_start + self._chunk_size
+      while range_end < end and range_end not in self._cache:
+        range_end += self._chunk_size
+
+      # Fetch the next blob.
+      buffer += self._fetch_aligned(start=next_start,
+                                    size=range_end - next_start)
+
+      next_start = range_end
+
     return buffer[offset:offset + size]
