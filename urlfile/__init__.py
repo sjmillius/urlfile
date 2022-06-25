@@ -1,9 +1,10 @@
-__all__ = ['BufferedUrlFile', 'UrlFile', 'HTTPRangeRequestUnsupported']
-
 import cachetools
 import os
 import requests
+import tqdm
 from typing import Dict
+
+__all__ = ['BufferedUrlFile', 'UrlFile', 'HTTPRangeRequestUnsupported']
 
 
 class HTTPRangeRequestUnsupported(Exception):
@@ -13,23 +14,23 @@ class HTTPRangeRequestUnsupported(Exception):
 class UrlFile:
   '''A random access file backed by http range requests.'''
 
-  def __init__(
-      self,
-      url: str,
-      session: requests.Session = None,
-      chunk_size_bytes: int = 1024 * 1024,
-  ):
+  def __init__(self,
+               url: str,
+               session: requests.Session = None,
+               chunk_size_bytes: int = 1024 * 1024,
+               verbose: bool = False):
     self._pos: int = 0
     self._total_bytes_fetched: int = 0
     self._num_requests: int = 0
     self._chunk_size: int = chunk_size_bytes
     self.url: str = url
     self.session: requests.Session = session or requests.Session()
+    self.verbose: bool = verbose
 
     # Make a head request to get length and see whether range requests are even supported.
     head = self.session.head(url=url)
     head.raise_for_status()
-    self.length: int = int(head.headers['Content-Length'])
+    self._length: int = int(head.headers['Content-Length'])
 
     if 'bytes' not in head.headers.get('Accept-Ranges', 'none'):
       raise HTTPRangeRequestUnsupported('http range requests not supported.')
@@ -41,6 +42,10 @@ class UrlFile:
   @property
   def num_requests(self) -> int:
     return self._num_requests
+
+  @property
+  def length(self) -> int:
+    return self._length
 
   @property
   def mode(self) -> str:
@@ -105,7 +110,20 @@ class UrlFile:
                                                             end=end),
                                 stream=True)
     response.raise_for_status()
-    return response.iter_content(chunk_size=self._chunk_size)
+    data_it = response.iter_content(chunk_size=self._chunk_size)
+    if not self.verbose:
+      return data_it
+
+    # Wrap in verbose feedback indicator.
+    progress = tqdm.tqdm(total=end - start,
+                         unit='B',
+                         unit_scale=True,
+                         unit_divisor=1024,
+                         leave=False,
+                         desc='Fetch data')
+    for chunk in data_it:
+      progress.update(len(chunk))
+      yield chunk
 
   def _data(self, start: int, size: int) -> bytes:
     '''Gets data for a specific range.'''
@@ -119,10 +137,12 @@ class BufferedUrlFile(UrlFile):
                url: str,
                session: requests.Session = None,
                chunk_size_bytes: int = 1024 * 1024,
-               cache_size_bytes: int = 10 * 1024 * 1024):
+               cache_size_bytes: int = 10 * 1024 * 1024,
+               verbose: bool = False):
     super().__init__(url=url,
                      session=session,
-                     chunk_size_bytes=chunk_size_bytes)
+                     chunk_size_bytes=chunk_size_bytes,
+                     verbose=verbose)
     self._cache: cachetools.LRUCache = cachetools.LRUCache(
         maxsize=cache_size_bytes, getsizeof=lambda _: chunk_size_bytes)
 
