@@ -13,10 +13,16 @@ class HTTPRangeRequestUnsupported(Exception):
 class UrlFile:
   '''A random access file backed by http range requests.'''
 
-  def __init__(self, url: str, session: requests.Session = None):
+  def __init__(
+      self,
+      url: str,
+      session: requests.Session = None,
+      chunk_size_bytes: int = 1024 * 1024,
+  ):
     self._pos: int = 0
-    self._total_bytes_fetched = 0
-    self._num_requests = 0
+    self._total_bytes_fetched: int = 0
+    self._num_requests: int = 0
+    self._chunk_size: int = chunk_size_bytes
     self.url: str = url
     self.session: requests.Session = session or requests.Session()
 
@@ -92,17 +98,18 @@ class UrlFile:
     self._total_bytes_fetched += (end - start + 1)
     return {'Range': f'bytes={start}-{end}'}
 
-  def _fetch_data_range(self, start: int, end: int) -> bytes:
+  def _fetch_data_range(self, start: int, end: int):
     '''Fetches a data range from the remote.'''
     response = self.session.get(url=self.url,
                                 headers=self._range_request(start=start,
-                                                            end=end))
+                                                            end=end),
+                                stream=True)
     response.raise_for_status()
-    return response.content
+    return response.iter_content(chunk_size=self._chunk_size)
 
   def _data(self, start: int, size: int) -> bytes:
     '''Gets data for a specific range.'''
-    return self._fetch_data_range(start=start, end=start + size - 1)
+    return b''.join(self._fetch_data_range(start=start, end=start + size - 1))
 
 
 class BufferedUrlFile(UrlFile):
@@ -113,21 +120,15 @@ class BufferedUrlFile(UrlFile):
                session: requests.Session = None,
                chunk_size_bytes: int = 1024 * 1024,
                cache_size_bytes: int = 10 * 1024 * 1024):
-    super().__init__(url=url, session=session)
-    self._chunk_size: int = chunk_size_bytes
+    super().__init__(url=url,
+                     session=session,
+                     chunk_size_bytes=chunk_size_bytes)
     self._cache: cachetools.LRUCache = cachetools.LRUCache(
         maxsize=cache_size_bytes, getsizeof=lambda _: chunk_size_bytes)
 
-  def _fetch_aligned(self, start: int, size: int) -> bytes:
-    response = self.session.get(url=self.url,
-                                headers=self._range_request(start=start,
-                                                            end=start + size -
-                                                            1),
-                                stream=True)
-    response.raise_for_status()
+  def _fetch_and_cache(self, start: int, end: int) -> bytes:
     buffer = b''
-    for i, chunk in enumerate(
-        response.iter_content(chunk_size=self._chunk_size)):
+    for i, chunk in enumerate(self._fetch_data_range(start=start, end=end)):
       self._cache[start + i * self._chunk_size] = chunk
       buffer += chunk
     return buffer
@@ -158,8 +159,7 @@ class BufferedUrlFile(UrlFile):
         range_end += self._chunk_size
 
       # Fetch the next blob.
-      buffer += self._fetch_aligned(start=next_start,
-                                    size=range_end - next_start)
+      buffer += self._fetch_and_cache(start=next_start, end=range_end - 1)
 
       next_start = range_end
 
